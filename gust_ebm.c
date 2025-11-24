@@ -48,6 +48,32 @@
 uint32_t duration1_length[] = { 0, 2 };
 uint32_t duration2_length[] = { 0, 1, 2 };
 
+void write_string_yumia(FILE* file, const char* str) {
+    if (!str) str = "";
+    uint32_t len = (uint32_t)strlen(str) + 1;
+    fwrite(&len, 4, 1, file);
+    fwrite(str, 1, len, file);
+}
+
+char* read_string_yumia(uint8_t** ptr, uint8_t* limit, int* error) {
+    if (*ptr + 4 > limit) { *error = 1; return NULL; }
+    uint32_t len = *(uint32_t*)(*ptr);
+    *ptr += 4;
+
+    if (*ptr + len > limit || len > 20000) { *error = 1; return NULL; }
+    
+    char* str = NULL;
+    if (len > 0) {
+        str = (char*)malloc(len);
+        memcpy(str, *ptr, len);
+        str[len-1] = '\0';
+    } else {
+        str = strdup("");
+    }
+    *ptr += len;
+    return str;
+}
+
 int main_utf8(int argc, char** argv)
 {
     int r = -1;
@@ -108,20 +134,12 @@ int main_utf8(int argc, char** argv)
                 val = (uint32_t)json_object_get_number(json_message, "type");
                 fwrite(&val, 4, 1, file);
                 
-                const char* voice_str = json_object_get_string(json_message, "voice_id_str");
-                if(!voice_str) voice_str = "";
-                uint32_t v_len = (uint32_t)strlen(voice_str) + 1; 
-                fwrite(&v_len, 4, 1, file);
-                fwrite(voice_str, 1, v_len, file);
+                write_string_yumia(file, json_object_get_string(json_message, "voice_id"));
 
-                val = (uint32_t)json_object_get_number(json_message, "unk1");
+                val = (uint32_t)json_object_get_number(json_message, "unknown1");
                 fwrite(&val, 4, 1, file);
 
-                const char* name_str = json_object_get_string(json_message, "name_id_str");
-                if(!name_str) name_str = "";
-                uint32_t n_len = (uint32_t)strlen(name_str) + 1;
-                fwrite(&n_len, 4, 1, file);
-                fwrite(name_str, 1, n_len, file);
+                write_string_yumia(file, json_object_get_string(json_message, "name_id"));
 
                 JSON_Array* arr1 = json_object_get_array(json_message, "params1");
                 for(int k=0; k<7; k++) {
@@ -138,38 +156,30 @@ int main_utf8(int argc, char** argv)
                     fwrite(&val, 4, 1, file);
                 }
 
-                const char* msg_s = json_object_get_string(json_message, "msg_string");
-                if(!msg_s) msg_s = "";
-                uint32_t m_len = (uint32_t)strlen(msg_s) + 1;
-                fwrite(&m_len, 4, 1, file);
-                fwrite(msg_s, 1, m_len, file);
-
-                const char* ext_s = json_object_get_string(json_message, "extra_str");
-                if(!ext_s) ext_s = "";
-                uint32_t e_len = (uint32_t)strlen(ext_s) + 1;
-                fwrite(&e_len, 4, 1, file);
-                fwrite(ext_s, 1, e_len, file);
+                write_string_yumia(file, json_object_get_string(json_message, "msg_string"));
+                
+                write_string_yumia(file, json_object_get_string(json_message, "extra_str"));
 
                 val = (uint32_t)json_object_get_number(json_message, "end_int");
                 fwrite(&val, 4, 1, file);
-
-                continue; 
+                
+                continue;
             }
 
             memset(ebm_header, 0, sizeof(ebm_header));
             uint32_t j = 0;
             size_t x;
-            ebm_header[j] = (uint32_t)json_object_get_number(json_message, "type");
-            ebm_header[++j] = (uint32_t)json_object_get_number(json_message, "voice_id");
-            ebm_header[++j] = (uint32_t)json_object_get_number(json_message, "unknown1");
-            ebm_header[++j] = (uint32_t)json_object_get_number(json_message, "name_id");
-            ebm_header[++j] = (uint32_t)json_object_get_number(json_message, "extra_id");
-            ebm_header[++j] = (uint32_t)json_object_get_number(json_message, "expr_id");
+            ebm_header[j] = json_object_get_uint32(json_message, "type");
+            ebm_header[++j] = json_object_get_uint32(json_message, "voice_id");
+            ebm_header[++j] = json_object_get_uint32(json_message, "unknown1");
+            ebm_header[++j] = json_object_get_uint32(json_message, "name_id");
+            ebm_header[++j] = json_object_get_uint32(json_message, "extra_id");
+            ebm_header[++j] = json_object_get_uint32(json_message, "expr_id");
             JSON_Array* json_duration_array = json_object_get_array(json_message, "duration1");
             for (x = 0; x < json_array_get_count(json_duration_array); x++)
-                ebm_header[++j] = (uint32_t)json_array_get_number(json_duration_array, x);
-            ebm_header[++j] = (uint32_t)json_object_get_number(json_message, "msg_id");
-            ebm_header[++j] = (uint32_t)json_object_get_number(json_message, "unknown2");
+                ebm_header[++j] = json_array_get_uint32(json_duration_array, x);
+            ebm_header[++j] = json_object_get_uint32(json_message, "msg_id");
+            ebm_header[++j] = json_object_get_uint32(json_message, "unknown2");
             const char* msg_string = json_object_get_string(json_message, "msg_string");
             ebm_header[++j] = (uint32_t)strlen(msg_string) + 1;
             if (fwrite(ebm_header, sizeof(uint32_t), j + 1, file) != j + 1) {
@@ -182,7 +192,7 @@ int main_utf8(int argc, char** argv)
             }
             json_duration_array = json_object_get_array(json_message, "duration2");
             for (x = 0; x < json_array_get_count(json_duration_array); x++)
-                ebm_header[x] = (uint32_t)json_array_get_number(json_duration_array, x);
+                ebm_header[x] = json_array_get_uint32(json_duration_array, x);
             if (x != 0) {
                 if (fwrite(ebm_header, sizeof(uint32_t), x, file) != x) {
                     fprintf(stderr, "ERROR: Can't write duration data\n");
@@ -190,15 +200,19 @@ int main_utf8(int argc, char** argv)
                 }
             }
         }
-        JSON_Array* json_extra_data = json_object_get_array(json_object(json), "extra_data");
-        for (size_t i = 0; i < json_array_get_count(json_extra_data); i++) {
-            uint32_t val = json_array_get_uint32(json_extra_data, i);
-            if (fwrite(&val, sizeof(uint32_t), 1, file) != 1) {
-                fprintf(stderr, "ERROR: Can't write extra data\n");
-                goto out;
+        
+        if (json_version != JSON_VERSION_YUMIA) {
+            JSON_Array* json_extra_data = json_object_get_array(json_object(json), "extra_data");
+            for (size_t i = 0; i < json_array_get_count(json_extra_data); i++) {
+                uint32_t val = json_array_get_uint32(json_extra_data, i);
+                if (fwrite(&val, sizeof(uint32_t), 1, file) != 1) {
+                    fprintf(stderr, "ERROR: Can't write extra data\n");
+                    goto out;
+                }
             }
         }
         r = 0;
+        
     } else if (strstr(argv[argc - 1], ".ebm") != NULL) {
         printf("Converting '%s' to JSON...\n", _basename(argv[argc - 1]));
         uint32_t buf_size = read_file(argv[argc - 1], &buf);
@@ -213,9 +227,9 @@ int main_utf8(int argc, char** argv)
         uint8_t* ptr_check = buf + 4; 
         int is_yumia_format = 1;
         
-        if (abs(nb_messages) > 0 && ptr_check < buf + buf_size) {
-             uint32_t check_len = *(uint32_t*)(ptr_check + 4);
-             if (check_len > 5000) is_yumia_format = 0;
+        if (abs(nb_messages) > 0 && ptr_check + 8 < buf + buf_size) {
+             uint32_t check_len = *(uint32_t*)(ptr_check + 4); 
+             if (check_len > 5000 || check_len == 0) is_yumia_format = 0;
         } else {
              is_yumia_format = 0;
         }
@@ -228,90 +242,60 @@ int main_utf8(int argc, char** argv)
             
             JSON_Value* json_messages_arr = json_value_init_array();
             uint8_t* ptr = buf + 4; 
+            int parse_err = 0;
 
             for (int i = 0; i < abs(nb_messages); i++) {
                 JSON_Value* msg = json_value_init_object();
-                
-                if (ptr >= buf + buf_size) { is_yumia_format = 0; break; }
+                if (ptr >= buf + buf_size) { parse_err = 1; break; }
 
-                uint32_t type = *(uint32_t*)ptr; ptr += 4;
-                json_object_set_number(json_object(msg), "type", type);
+                json_object_set_number(json_object(msg), "type", *(uint32_t*)ptr); ptr += 4;
 
-                uint32_t len = *(uint32_t*)ptr; ptr += 4;
-                if (ptr + len > buf + buf_size || len > 5000) { is_yumia_format = 0; break; }
-                if (len > 0) {
-                    char* temp = (char*)malloc(len);
-                    memcpy(temp, ptr, len);
-                    temp[len-1] = '\0';
-                    json_object_set_string(json_object(msg), "voice_id_str", temp);
-                    free(temp);
-                } else { json_object_set_string(json_object(msg), "voice_id_str", ""); }
-                ptr += len;
+                char* voice_str = read_string_yumia(&ptr, buf + buf_size, &parse_err);
+                if (parse_err) break;
+                json_object_set_string(json_object(msg), "voice_id", voice_str);
+                free(voice_str);
 
-                uint32_t unk1 = *(uint32_t*)ptr; ptr += 4;
-                json_object_set_number(json_object(msg), "unk1", unk1);
+                json_object_set_number(json_object(msg), "unknown1", *(uint32_t*)ptr); ptr += 4;
 
-                len = *(uint32_t*)ptr; ptr += 4;
-                if (ptr + len > buf + buf_size || len > 5000) { is_yumia_format = 0; break; }
-                if (len > 0) {
-                    char* temp = (char*)malloc(len);
-                    memcpy(temp, ptr, len);
-                    temp[len-1] = '\0';
-                    json_object_set_string(json_object(msg), "name_id_str", temp);
-                    free(temp);
-                } else { json_object_set_string(json_object(msg), "name_id_str", ""); }
-                ptr += len;
+                char* name_str = read_string_yumia(&ptr, buf + buf_size, &parse_err);
+                if (parse_err) break;
+                json_object_set_string(json_object(msg), "name_id", name_str);
+                free(name_str);
 
                 JSON_Value* arr1 = json_value_init_array();
                 for(int k=0; k<7; k++) {
-                    json_array_append_number(json_array(arr1), *(uint32_t*)ptr);
-                    ptr += 4;
+                    json_array_append_number(json_array(arr1), *(uint32_t*)ptr); ptr += 4;
                 }
                 json_object_set_value(json_object(msg), "params1", arr1);
 
-                uint32_t msg_id = *(uint32_t*)ptr; ptr += 4;
-                json_object_set_number(json_object(msg), "msg_id", msg_id);
+                json_object_set_number(json_object(msg), "msg_id", *(uint32_t*)ptr); ptr += 4;
 
                 JSON_Value* arr2 = json_value_init_array();
                 for(int k=0; k<7; k++) {
-                    json_array_append_number(json_array(arr2), *(uint32_t*)ptr);
-                    ptr += 4;
+                    json_array_append_number(json_array(arr2), *(uint32_t*)ptr); ptr += 4;
                 }
                 json_object_set_value(json_object(msg), "params2", arr2);
 
-                len = *(uint32_t*)ptr; ptr += 4;
-                if (ptr + len > buf + buf_size || len > 20000) { is_yumia_format = 0; break; }
-                if (len > 0) {
-                    char* temp = (char*)malloc(len);
-                    memcpy(temp, ptr, len);
-                    temp[len-1] = '\0';
-                    json_object_set_string(json_object(msg), "msg_string", temp);
-                    free(temp);
-                } else { json_object_set_string(json_object(msg), "msg_string", ""); }
-                ptr += len;
+                char* msg_str = read_string_yumia(&ptr, buf + buf_size, &parse_err);
+                if (parse_err) break;
+                json_object_set_string(json_object(msg), "msg_string", msg_str);
+                free(msg_str);
 
-                len = *(uint32_t*)ptr; ptr += 4;
-                if (ptr + len > buf + buf_size || len > 20000) { is_yumia_format = 0; break; }
-                if (len > 0) {
-                    char* temp = (char*)malloc(len);
-                    memcpy(temp, ptr, len);
-                    temp[len-1] = '\0';
-                    json_object_set_string(json_object(msg), "extra_str", temp);
-                    free(temp);
-                } else { json_object_set_string(json_object(msg), "extra_str", ""); }
-                ptr += len;
+                char* ext_str = read_string_yumia(&ptr, buf + buf_size, &parse_err);
+                if (parse_err) break;
+                json_object_set_string(json_object(msg), "extra_str", ext_str);
+                free(ext_str);
 
-                uint32_t end_int = *(uint32_t*)ptr; ptr += 4;
-                json_object_set_number(json_object(msg), "end_int", end_int);
+                json_object_set_number(json_object(msg), "end_int", *(uint32_t*)ptr); ptr += 4;
 
                 json_array_append_value(json_array(json_messages_arr), msg);
             }
 
-            if (is_yumia_format) {
+            if (!parse_err) {
                 json_object_set_value(json_object(json), "messages", json_messages_arr);
                 snprintf(path, sizeof(path), "%s%c%s", _dirname(argv[argc - 1]), PATH_SEP,
                     change_extension(_basename(argv[argc - 1]), ".json"));
-                printf("Creating '%s'\n", path);
+                printf("Creating '%s' (Yumia Mode)\n", path);
                 json_serialize_to_file_pretty(json, path);
                 r = 0;
                 goto out; 
@@ -423,7 +407,7 @@ out:
         printf("\nPress any key to continue...");
         (void)getchar();
     }
- 
+
     return r;
 }
 
